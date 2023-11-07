@@ -1,23 +1,7 @@
 #include <LiquidCrystal.h>
 #include <Servo.h>
 #include <math.h>
-#include <Keypad.h>
 #include <EEPROM.h>
-
-const byte ROWS = 4;
-const byte COLS = 4; 
-
-char keys[ROWS][COLS] = {
-  {'1','2','3','A'},
-  {'4','5','6','B'},
-  {'7','8','9','C'},
-  {'*','0','#','D'}
-};
-
-byte rowPins[ROWS] = {25,27,29,31}; 
-byte colPins[COLS] = {33,35,37,39};  
-
-Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
 
 struct Solo {
   char tipoDeSolo[20];
@@ -141,17 +125,26 @@ void armazenarPlantas() {
   
 }
 
+// Potenciometro
+int pinPot = A4;
+int potValor = 0;
 
+//Reservatorio
+int pinLedReservatorio = 13;
 
 Servo motor;
 int contrast = 75;
 int pos;
 
 int isOpen = 0;
+int isIrrigando = 0;
 int SensChuva = A0;
 int SensUmid1 = A1;
+int umid1 = 0;
 int SensUmid2 = A2;
+int umid2 = 0;
 int SensUmid3 = A3;
+int umid3 = 0;
 int enderecoEEPROM = 0x0400;
 int enderecoMax = 0x0940;
 int enderecoMin = 0x0400;
@@ -162,6 +155,7 @@ void setup () {
   armazenarPlantas();
   analogWrite(6, contrast);
   LCD.begin(16, 2);
+  digitalWrite(pinLedReservatorio, LOW);
 
   TpPlanta planta = lerPlanta(enderecoEEPROM);
   exibirLCD("Planta: ",planta.nome);
@@ -207,27 +201,27 @@ void exibirLCD(const char info[], const char info2[]) {
     delay(1000);
 }
 
-char lerTecla(){
-  char key = keypad.getKey();
-
-  return key;
-}
-
 void irrigar(){
-  Serial.print("irrigar");
+  TpPlanta planta = lerPlanta(enderecoEEPROM);
+  LCD.clear();
+  LCD.setCursor(0, 0);
+  LCD.print("Irrigando: ");
+  LCD.setCursor(0, 1);
+  LCD.print(planta.nome);
 }
 
 void handleTecla(char key){
   if (key) {
-    if(key == '1'){
+    if(key == '1' && !isIrrigando){
       if(enderecoEEPROM > 0x0400) {
         enderecoEEPROM -= 0x0150;
       }
-    } else if (key == '2'){
+    } else if (key == '2' && !isIrrigando){
       if(enderecoEEPROM < 0x0940) {
           enderecoEEPROM += 0x0150;
       }
     } else if (key == '3') {
+      isIrrigando = 1;
       irrigar();
     } else {
       Serial.println("Tecla Inválida");
@@ -239,13 +233,38 @@ void handleTecla(char key){
   }
 }
 
+void ligarLedParaAbastecerReservatorio() {
+  if(potValor <= 400) {
+    digitalWrite(pinLedReservatorio, HIGH);
+  }
+  else {
+    digitalWrite(pinLedReservatorio, LOW);
+  }
+  delay(500);
+}
+
 void loop () {  
   int umidPlanta2 = analogRead(SensUmid2);
   int umidPlanta3 = analogRead(SensUmid3);
 
+  potValor = analogRead(pinPot);
+  //Serial.println(potValor);
+
+  umid1 = analogRead(SensUmid1);
+  umid2 = analogRead(SensUmid2);
+  umid3 = analogRead(SensUmid3);
+  Serial.print("1: ");
+  Serial.println(umid1);
+  Serial.print("2: ");
+  Serial.println(umid2);
+  Serial.print("3: ");
+  Serial.println(umid3);
+
+  
+  ligarLedParaAbastecerReservatorio();
   moverMotor();
 
-  char tecla = lerTecla();
-  handleTecla(tecla);
+//  char tecla = lerTecla();
+//  handleTecla(tecla);
   
 }
