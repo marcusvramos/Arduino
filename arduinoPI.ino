@@ -2,6 +2,7 @@
 #include <Servo.h>
 #include <math.h>
 #include <EEPROM.h>
+#include <SD.h>
 
 struct Solo {
   char tipoDeSolo[20];
@@ -72,6 +73,8 @@ void armazenarSolo() {
   escreverSolo(0x0240, solo5);
 }
 
+
+
 void armazenarPlantas() {
   // Exemplo 1: Margarida
   TpPlanta margarida;
@@ -139,6 +142,7 @@ int contrast = 75;
 int pos;
 
 int isOpen = 1;
+int change = 0;
 int isIrrigando = 0;
 int SensChuva = A0;
 int SensUmid1 = A1;
@@ -153,6 +157,10 @@ int enderecoMin = 0x0400;
 const byte botaoAnt = 25;
 const byte botaoProx = 27;
 const byte botaoEnter = 29;
+
+const int chipSelect = 53; // Pino do Arduino Mega ao qual o CS do módulo SD está conectado
+
+File dataFile;
 
 void moverMotor(int range){
   switch (range) {
@@ -201,15 +209,22 @@ int isChovendo(){
 }
 
 
+void clearLCD(){
+    LCD.setCursor(0, 0);
+    LCD.print("                ");
+    LCD.setCursor(0, 1);
+    LCD.print("                ");
+    delay(500);
+}
 
 void exibirLCD(const char info[], const char info2[]) {
-    LCD.clear();
     LCD.setCursor(0, 0);
     LCD.print(info);
     LCD.setCursor(0, 1);
     LCD.print(info2);
-    delay(1000);
+    delay(500);
 }
+
 
 int necessitaIrrigar(int umidade) {
   Serial.print("Umidade atual: ");
@@ -224,12 +239,26 @@ int necessitaIrrigar(int umidade) {
   return 0;
 }
 
+int mudou(int info){
+  int estado = change;
+  change = info;
+  if(estado == info){
+    return 1;
+  }
+  else {
+    return 0;
+  }
+}
+
 void irrigar() {
-  int valorEnter = digitalRead(botaoEnter);
+  int valorEnter = LOW;
+  isIrrigando = 1;
+  int ultimo = -2;
 
   do{
-
-    Serial.println("Esta no loop");
+    delay(500);
+    Serial.println(enderecoEEPROM);
+    Serial.println(plantaSelecionada.nome);
     umidPlanta1 = analogRead(SensUmid1);
     int nivel = necessitaIrrigar(umidPlanta1);
     char stringNivelAtual[15];
@@ -237,22 +266,30 @@ void irrigar() {
     sprintf(stringNivelAtual, "Nivel atual: %d", nivel); // Formatando o valor de 'nivel' para string
     sprintf(stringNivelIdeal, "Nivel ideal: %d", plantaSelecionada.umidadeIdeal); // Formatando o valor de 'plantaSelecionada.umidadeIdeal' para string
     if (nivel) {
-      exibirLCD(stringNivelAtual, stringNivelIdeal);
-      delay(1000);
+      if(ultimo != nivel){
+        ultimo = nivel;
+        clearLCD();
+        exibirLCD(stringNivelAtual, stringNivelIdeal);
+      }
     }
     else {
-      exibirLCD("Monitorando: ", plantaSelecionada.nome);
-      delay(1000);
+      if(ultimo != 0){
+        clearLCD();
+        exibirLCD("Monitorando: ", plantaSelecionada.nome);
+        ultimo = 0;  
+      }
     }
     valorEnter = digitalRead(botaoEnter);
   }while(valorEnter == LOW);
-  Serial.println("Saiu do loop");
+  Serial.println(enderecoEEPROM);
   isIrrigando = 0;
+  // enderecoEEPROM = 0x0400;
+  // TpPlanta plantaInicial = lerPlanta(enderecoEEPROM);
+  // exibirLCD("Planta: ", plantaInicial.nome);
 }
 
 void handleTecla(char key){
   if (key) {
-    Serial.println(key);
     if(key == '1'){
       if(enderecoEEPROM > 0x0400) {
         enderecoEEPROM -= 0x0150;
@@ -262,13 +299,20 @@ void handleTecla(char key){
           enderecoEEPROM += 0x0150;
       }
     } else if (key == '3') {
-      isIrrigando = 1;
-      plantaSelecionada = lerPlanta(enderecoEEPROM);
-      irrigar();
+      if(isIrrigando == 1) {
+        Serial.println(enderecoEEPROM);
+        Serial.println(plantaSelecionada.nome);
+        isIrrigando = 0;
+      } else {
+        isIrrigando = 1;
+        plantaSelecionada = lerPlanta(enderecoEEPROM);
+        irrigar();
+      }
     } else {
       Serial.println("Tecla Inválida");
     }
      TpPlanta planta = lerPlanta(enderecoEEPROM);
+     clearLCD();
      exibirLCD("Planta: ",planta.nome);
   }
 }
@@ -277,6 +321,13 @@ void tecla(){
   int valorAnt = digitalRead(botaoAnt);
   int valorProx = digitalRead(botaoProx);
   int valorEnter = digitalRead(botaoEnter);
+  
+  Serial.print("Valor ant: ");
+  Serial.println(valorAnt);
+  Serial.print("Valor prox: ");
+  Serial.println(valorProx);
+  Serial.print("Valor enter: ");
+  Serial.println(valorEnter);
   
   if(valorAnt == HIGH){
     handleTecla('1');
@@ -295,15 +346,26 @@ void tecla(){
 
 void setup () {
   Serial.begin(9600);
-  // pinMode(SensUmid1, INPUT);
+  pinMode(SensUmid1, INPUT);
   armazenarSolo();
   armazenarPlantas();
+  SD.begin(chipSelect);
   
   analogWrite(6, contrast);
   LCD.begin(16, 2);
  
+  dataFile = SD.open("dados.txt", FILE_WRITE);
+  
+  if (dataFile) {
+    dataFile.println("Olá, isso é um arquivo de texto no cartão SD!");
+    dataFile.close();
+    Serial.println("Dados gravados com sucesso.");
+  } else {
+    Serial.println("Erro ao abrir o arquivo.");
+  }
   
   TpPlanta planta = lerPlanta(enderecoEEPROM);
+  Serial.println(planta.nome);
   exibirLCD("Planta: ",planta.nome);
 
   motor.attach(23);
@@ -321,7 +383,6 @@ void loop () {
    umidPlanta1 = analogRead(SensUmid1);
    umidPlanta2 = analogRead(SensUmid2);
    umidPlanta3 = analogRead(SensUmid3);
-   Serial.println("Oiiiii");
 
    potValor = analogRead(pinPot);
   
@@ -329,5 +390,5 @@ void loop () {
    handleTampa();
   
 
-  delay(100);
+  delay(500);
 }
