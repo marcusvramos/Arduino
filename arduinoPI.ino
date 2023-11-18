@@ -11,9 +11,11 @@ typedef struct Solo TpSolo;
 
 struct Planta {
   int id;
-  char nome[56];
+  char nome[52];
   char tipo[20];
-  char faseCrescimento[20];
+  char faseCrescimento[20]; 
+  int  umidadeIdeal;
+  // germinação, crescimento vegetativo, floração, frutificação, Maturação
   TpSolo solo;
 };
 typedef struct Planta TpPlanta;
@@ -77,6 +79,7 @@ void armazenarPlantas() {
   strcpy(margarida.nome, "Margarida");
   strcpy(margarida.tipo, "Flor");
   strcpy(margarida.faseCrescimento, "Curta");
+  margarida.umidadeIdeal = 2;  
   TpSolo soloMargarida = lerSolo(0x01A0);
   margarida.solo = soloMargarida;
   escreverPlanta(0x0400, margarida);
@@ -87,10 +90,10 @@ void armazenarPlantas() {
   strcpy(girassol.nome, "Girassol");
   strcpy(girassol.tipo, "Flor");
   strcpy(girassol.faseCrescimento, "Media");
+  girassol.umidadeIdeal = 1; 
   TpSolo soloGirassol = lerSolo(0x01F0);
   girassol.solo = soloGirassol;
   escreverPlanta(0x0550, girassol);
-
 
   // Exemplo 3: Tulipa
   TpPlanta tulipa;
@@ -98,10 +101,10 @@ void armazenarPlantas() {
   strcpy(tulipa.nome, "Tulipa");
   strcpy(tulipa.tipo, "Flor");
   strcpy(tulipa.faseCrescimento, "Media");
+  tulipa.umidadeIdeal = 2; 
   TpSolo soloTulipa = lerSolo(0x0240);
   tulipa.solo = soloTulipa;
   escreverPlanta(0x06A0, tulipa);
-
 
   // Exemplo 4: Carvalho
   TpPlanta carvalho;
@@ -109,6 +112,7 @@ void armazenarPlantas() {
   strcpy(carvalho.nome, "Carvalho");
   strcpy(carvalho.tipo, "Árvore");
   strcpy(carvalho.faseCrescimento, "Lenta");
+  carvalho.umidadeIdeal = 4;  
   TpSolo soloCarvalho = lerSolo(0x01A0);
   carvalho.solo = soloCarvalho;
   escreverPlanta(0x07F0, carvalho);
@@ -119,54 +123,38 @@ void armazenarPlantas() {
   strcpy(planta2.nome, "Alface");
   strcpy(planta2.tipo, "Hortaliça");
   strcpy(planta2.faseCrescimento, "Curta");
+  planta2.umidadeIdeal = 3; 
   TpSolo solo2 = lerSolo(0x0150);
   planta2.solo = solo2;
   escreverPlanta(0x0940, planta2);
-  
 }
 
 // Potenciometro
 int pinPot = A4;
 int potValor = 0;
-
-//Reservatorio
-int pinLedReservatorio = 13;
+TpPlanta plantaSelecionada;
 
 Servo motor;
 int contrast = 75;
 int pos;
 
-int isOpen = 0;
+int isOpen = 1;
 int isIrrigando = 0;
 int SensChuva = A0;
 int SensUmid1 = A1;
-int umid1 = 0;
+int umidPlanta1 = 0;
 int SensUmid2 = A2;
-int umid2 = 0;
+int umidPlanta2 = 0;
 int SensUmid3 = A3;
-int umid3 = 0;
+int umidPlanta3 = 0;
 int enderecoEEPROM = 0x0400;
 int enderecoMax = 0x0940;
 int enderecoMin = 0x0400;
+const byte botaoAnt = 25;
+const byte botaoProx = 27;
+const byte botaoEnter = 29;
 
-void setup () {
-  Serial.begin (9600);
-  pinMode(SensUmid1, INPUT);
-  armazenarPlantas();
-  analogWrite(6, contrast);
-  LCD.begin(16, 2);
-  digitalWrite(pinLedReservatorio, LOW);
-
-  TpPlanta planta = lerPlanta(enderecoEEPROM);
-  exibirLCD("Planta: ",planta.nome);
-  
-  motor.attach(23);
-}
-
-void moverMotor(){
-  int chuva = analogRead(SensChuva);
-  int range = floor(map(chuva, 0, 1024, 0, 2));
-  
+void moverMotor(int range){
   switch (range) {
     case 0:       
       for (pos = 0; pos <= 180 && isOpen == 0; pos++) {
@@ -191,80 +179,155 @@ void moverMotor(){
    delay(400);  
 }
 
+void handleTampa(){
+  int reservVazio = reservatorioVazio();
+  int chovendo = isChovendo();
+  if(chovendo && reservVazio){
+    moverMotor(0);
+  }
+  else{
+    moverMotor(1);
+  }
+}
+
+int isChovendo(){
+  int chuva = analogRead(SensChuva);
+  int range = floor(map(chuva, 0, 1024, 0, 2));
+  if(range > 0){
+    return 0;
+  } else {
+    return 1;
+  }
+}
+
+
+
 void exibirLCD(const char info[], const char info2[]) {
     LCD.clear();
     LCD.setCursor(0, 0);
     LCD.print(info);
     LCD.setCursor(0, 1);
     LCD.print(info2);
-
     delay(1000);
 }
 
-void irrigar(){
-  TpPlanta planta = lerPlanta(enderecoEEPROM);
-  LCD.clear();
-  LCD.setCursor(0, 0);
-  LCD.print("Irrigando: ");
-  LCD.setCursor(0, 1);
-  LCD.print(planta.nome);
+int necessitaIrrigar(int umidade) {
+  Serial.print("Umidade atual: ");
+  Serial.println(umidade);
+  int nivelAtual = trunc(umidade / 310); // Dividindo a umidade por 310 para obter um valor entre 0 e 4
+  nivelAtual = abs(nivelAtual - 4); // Tomando o valor absoluto da diferença entre nivelAtual e 4
+  Serial.println(nivelAtual);
+  Serial.println(plantaSelecionada.umidadeIdeal);
+  if (nivelAtual < plantaSelecionada.umidadeIdeal) {
+    return nivelAtual;
+  }
+  return 0;
+}
+
+void irrigar() {
+  int valorEnter = digitalRead(botaoEnter);
+
+  do{
+
+    Serial.println("Esta no loop");
+    umidPlanta1 = analogRead(SensUmid1);
+    int nivel = necessitaIrrigar(umidPlanta1);
+    char stringNivelAtual[15];
+    char stringNivelIdeal[15];
+    sprintf(stringNivelAtual, "Nivel atual: %d", nivel); // Formatando o valor de 'nivel' para string
+    sprintf(stringNivelIdeal, "Nivel ideal: %d", plantaSelecionada.umidadeIdeal); // Formatando o valor de 'plantaSelecionada.umidadeIdeal' para string
+    if (nivel) {
+      exibirLCD(stringNivelAtual, stringNivelIdeal);
+      delay(1000);
+    }
+    else {
+      exibirLCD("Monitorando: ", plantaSelecionada.nome);
+      delay(1000);
+    }
+    valorEnter = digitalRead(botaoEnter);
+  }while(valorEnter == LOW);
+  Serial.println("Saiu do loop");
+  isIrrigando = 0;
 }
 
 void handleTecla(char key){
   if (key) {
-    if(key == '1' && !isIrrigando){
+    Serial.println(key);
+    if(key == '1'){
       if(enderecoEEPROM > 0x0400) {
         enderecoEEPROM -= 0x0150;
       }
-    } else if (key == '2' && !isIrrigando){
+    } else if (key == '2'){
       if(enderecoEEPROM < 0x0940) {
           enderecoEEPROM += 0x0150;
       }
     } else if (key == '3') {
       isIrrigando = 1;
+      plantaSelecionada = lerPlanta(enderecoEEPROM);
       irrigar();
     } else {
       Serial.println("Tecla Inválida");
     }
      TpPlanta planta = lerPlanta(enderecoEEPROM);
      exibirLCD("Planta: ",planta.nome);
-     Serial.println(enderecoEEPROM);
-     Serial.println(planta.nome);
   }
 }
 
-void ligarLedParaAbastecerReservatorio() {
-  if(potValor <= 400) {
-    digitalWrite(pinLedReservatorio, HIGH);
+void tecla(){
+  int valorAnt = digitalRead(botaoAnt);
+  int valorProx = digitalRead(botaoProx);
+  int valorEnter = digitalRead(botaoEnter);
+  
+  if(valorAnt == HIGH){
+    handleTecla('1');
   }
-  else {
-    digitalWrite(pinLedReservatorio, LOW);
+  
+  if(valorProx == HIGH){
+    handleTecla('2');
   }
-  delay(500);
+  
+  if(valorEnter == HIGH){
+    handleTecla('3');
+  }
+  
+  delay(100);
+}
+
+void setup () {
+  Serial.begin(9600);
+  // pinMode(SensUmid1, INPUT);
+  armazenarSolo();
+  armazenarPlantas();
+  
+  analogWrite(6, contrast);
+  LCD.begin(16, 2);
+ 
+  
+  TpPlanta planta = lerPlanta(enderecoEEPROM);
+  exibirLCD("Planta: ",planta.nome);
+
+  motor.attach(23);
+  motor.write(180);
+}
+
+int reservatorioVazio(){
+  if(potValor <= 800) {
+    return 1;
+  } 
+  return 0;
 }
 
 void loop () {  
-  int umidPlanta2 = analogRead(SensUmid2);
-  int umidPlanta3 = analogRead(SensUmid3);
+   umidPlanta1 = analogRead(SensUmid1);
+   umidPlanta2 = analogRead(SensUmid2);
+   umidPlanta3 = analogRead(SensUmid3);
+   Serial.println("Oiiiii");
 
-  potValor = analogRead(pinPot);
-  //Serial.println(potValor);
-
-  umid1 = analogRead(SensUmid1);
-  umid2 = analogRead(SensUmid2);
-  umid3 = analogRead(SensUmid3);
-  Serial.print("1: ");
-  Serial.println(umid1);
-  Serial.print("2: ");
-  Serial.println(umid2);
-  Serial.print("3: ");
-  Serial.println(umid3);
-
+   potValor = analogRead(pinPot);
   
-  ligarLedParaAbastecerReservatorio();
-  moverMotor();
-
-//  char tecla = lerTecla();
-//  handleTecla(tecla);
+   tecla();
+   handleTampa();
   
+
+  delay(100);
 }
