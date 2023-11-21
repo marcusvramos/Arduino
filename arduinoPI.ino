@@ -214,10 +214,11 @@ void clearLCD(){
     LCD.print("                ");
     LCD.setCursor(0, 1);
     LCD.print("                ");
-    delay(500);
+    delay(1000);
 }
 
 void exibirLCD(const char info[], const char info2[]) {
+    clearLCD();
     LCD.setCursor(0, 0);
     LCD.print(info);
     LCD.setCursor(0, 1);
@@ -268,15 +269,15 @@ void irrigar() {
     if (nivel) {
       if(ultimo != nivel){
         ultimo = nivel;
-        clearLCD();
         exibirLCD(stringNivelAtual, stringNivelIdeal);
+        delay(500);
       }
     }
     else {
       if(ultimo != 0){
-        clearLCD();
         exibirLCD("Monitorando: ", plantaSelecionada.nome);
         ultimo = 0;  
+        delay(500);
       }
     }
     valorEnter = digitalRead(botaoEnter);
@@ -312,7 +313,6 @@ void handleTecla(char key){
       Serial.println("Tecla Inválida");
     }
      TpPlanta planta = lerPlanta(enderecoEEPROM);
-     clearLCD();
      exibirLCD("Planta: ",planta.nome);
   }
 }
