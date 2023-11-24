@@ -1,3 +1,6 @@
+// Time - Version: Latest 
+#include <TimeLib.h>
+
 #include <LiquidCrystal.h>
 #include <Servo.h>
 #include <math.h>
@@ -160,7 +163,7 @@ const byte botaoEnter = 29;
 
 const int chipSelect = 53; // Pino do Arduino Mega ao qual o CS do módulo SD está conectado
 
-File dataFile;
+File relatorio;
 
 void moverMotor(int range){
   switch (range) {
@@ -251,23 +254,29 @@ int mudou(int info){
   }
 }
 
+int tempoReservatorioLigado = 0;
+
 void irrigar() {
   int valorEnter = LOW;
   isIrrigando = 1;
   int ultimo = -2;
+  int nivelUsado = 1;
+  int nivel;
 
   do{
     delay(500);
     Serial.println(enderecoEEPROM);
     Serial.println(plantaSelecionada.nome);
     umidPlanta1 = analogRead(SensUmid1);
-    int nivel = necessitaIrrigar(umidPlanta1);
+    nivel = necessitaIrrigar(umidPlanta1);
     char stringNivelAtual[15];
     char stringNivelIdeal[15];
     sprintf(stringNivelAtual, "Nivel atual: %d", nivel); // Formatando o valor de 'nivel' para string
     sprintf(stringNivelIdeal, "Nivel ideal: %d", plantaSelecionada.umidadeIdeal); // Formatando o valor de 'plantaSelecionada.umidadeIdeal' para string
+
     if (nivel) {
       if(ultimo != nivel){
+        nivelUsado = nivel;
         ultimo = nivel;
         exibirLCD(stringNivelAtual, stringNivelIdeal);
         delay(500);
@@ -275,13 +284,18 @@ void irrigar() {
     }
     else {
       if(ultimo != 0){
+        nivelUsado = plantaSelecionada.umidadeIdeal;
         exibirLCD("Monitorando: ", plantaSelecionada.nome);
         ultimo = 0;  
         delay(500);
       }
     }
+    
+    tempoReservatorioLigado += 1;
     valorEnter = digitalRead(botaoEnter);
   }while(valorEnter == LOW);
+  
+  atualizarRelatorio(nivelUsado, plantaSelecionada.umidadeIdeal);
   Serial.println(enderecoEEPROM);
   isIrrigando = 0;
   // enderecoEEPROM = 0x0400;
@@ -322,12 +336,12 @@ void tecla(){
   int valorProx = digitalRead(botaoProx);
   int valorEnter = digitalRead(botaoEnter);
   
-  Serial.print("Valor ant: ");
-  Serial.println(valorAnt);
-  Serial.print("Valor prox: ");
-  Serial.println(valorProx);
-  Serial.print("Valor enter: ");
-  Serial.println(valorEnter);
+  // Serial.print("Valor ant: ");
+  // Serial.println(valorAnt);
+  // Serial.print("Valor prox: ");
+  // Serial.println(valorProx);
+  // Serial.print("Valor enter: ");
+  // Serial.println(valorEnter);
   
   if(valorAnt == HIGH){
     handleTecla('1');
@@ -346,6 +360,7 @@ void tecla(){
 
 void setup () {
   Serial.begin(9600);
+  setTime(0, 0, 0, 24, 11, 2023);
   pinMode(SensUmid1, INPUT);
   armazenarSolo();
   armazenarPlantas();
@@ -354,15 +369,16 @@ void setup () {
   analogWrite(6, contrast);
   LCD.begin(16, 2);
  
-  dataFile = SD.open("dados.txt", FILE_WRITE);
+  relatorio = SD.open("dados.txt", FILE_WRITE);
   
-  if (dataFile) {
-    dataFile.println("Olá, isso é um arquivo de texto no cartão SD!");
-    dataFile.close();
+  // if (relatorio) {
+    Serial.println("Relatorio de Irrigacao Inteligente");
+    Serial.println("--------------------------------");
+    // relatorio.close();
     Serial.println("Dados gravados com sucesso.");
-  } else {
-    Serial.println("Erro ao abrir o arquivo.");
-  }
+  // } else {
+  //   Serial.println("Erro ao abrir o arquivo.");
+  // }
   
   TpPlanta planta = lerPlanta(enderecoEEPROM);
   Serial.println(planta.nome);
@@ -378,6 +394,63 @@ int reservatorioVazio(){
   } 
   return 0;
 }
+
+float aguaUtilizada = 0.0;
+float valorGasto = 0.0;
+float aguaDesnecessaria = 0.0;
+float custoPorLitro = 0.005;
+
+
+void atualizarRelatorio(int nivelAtual, int umidadeIdeal) {
+  if (nivelAtual <= umidadeIdeal) {
+    aguaUtilizada += nivelAtual*10;
+    valorGasto += (nivelAtual*10)*custoPorLitro;
+  } else {
+    aguaDesnecessaria += (umidadeIdeal - nivelAtual) * 10;
+  }
+
+  criarRelatorio();
+}
+
+
+void criarRelatorio() {
+  
+  time_t t = now();
+  
+  relatorio = SD.open("relatorio.txt", FILE_WRITE);
+  Serial.println("=====================================================================================================================");
+  Serial.println(relatorio);
+  Serial.println("=====================================================================================================================");
+  Serial.println("Data/Hora: ");
+
+  Serial.print(day());
+  Serial.print("/");
+  Serial.print(month());
+  Serial.print("/");
+  Serial.println(year());
+
+  Serial.println("Informacoes Atuais:");
+  Serial.println("Quantidade de agua utilizada: ");
+  Serial.print(aguaUtilizada);
+  Serial.println(" litros");
+
+  Serial.println("Valor gasto: R$");
+  Serial.println(valorGasto);
+  
+  Serial.println("Tempo ligado: ");
+  Serial.print(tempoReservatorioLigado);
+  Serial.println(" segundos");
+
+  Serial.println();
+  
+  // relatorio.close();
+  
+  Serial.println("Informacoes adicionadas ao relatorio com sucesso.");
+
+
+  delay(10000);  
+}
+
 
 void loop () {  
    umidPlanta1 = analogRead(SensUmid1);
